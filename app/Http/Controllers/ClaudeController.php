@@ -3,40 +3,65 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use ClaudePhp\Laravel\Facades\Claude;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Session;
 
 class ClaudeController extends Controller
 {
     //
     public function index()
     {
-        return view('claude.index');
+        $history = Session::get('chat_history', []);
+        return view('claude.index', compact('history'));
     }
 
     public function chat(Request $request)
     {
         $request->validate(['prompt' => 'required|string']);
-        $userPrompt = $request->prompt;
-
+        $userPrompt = $request->input('prompt');
         $apiKey = Config::get('claude.api_key');
 
-        if (empty($apiKey)) {
-            $reply = "API Key not detected.";
+        $history = Session::get('chat_history', []);
+
+        $history[] = [
+            'role' => 'user',
+            'parts' => [['text' => $userPrompt]]
+        ];
+
+        if (empty($apiKey) || $apiKey === 'dummy_key_for_now') {
+            $replyText = "API Key not detected. Simulated reply to: " . $userPrompt;
         } else {
             try {
-                $response = Claude::messages()->create([
-                    'model' => 'MODEL_CLAUDE_OPUS_4_6',
-                    'system' => 'You are a Maths Tutor. While giving answer to a question, you does not directly give answer but give small hints and guide through the solution',
-                    'max_tokens' => 1024,
-                    'messages' => [['role' => 'user', 'content' => $userPrompt]]
+                $response = Http::post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={$apiKey}", [
+                    'contents' => $history 
                 ]);
-                $reply = $response['content'][0]['text'];
+
+                if ($response->successful()) {
+                    $replyText = $response->json()['candidates'][0]['content']['parts'][0]['text'] ?? 'No response text found.';
+                } else {
+                    $replyText = "Gemini API Error: " . $response->body();
+                }
             } catch (\Exception $e) {
-                $reply = "Error: " . $e->getMessage();
+                $replyText = "Error: " . $e->getMessage();
             }
         }
 
-        return view('claude.index', ['reply' => $reply, 'prompt' => $userPrompt]);
+        $history[] = [
+            'role' => 'model', 
+            'parts' => [['text' => $replyText]]
+        ];
+
+        Session::put('chat_history', $history);
+
+        return redirect()->route('claude.index');
+    }
+
+    public function clear()
+    {
+        Session::forget('chat_history');
+        return redirect()->route('claude.index');
     }
 }
+
+

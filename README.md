@@ -1,4 +1,4 @@
-readme_content = """# Claude API Project in Laravel
+# Claude API Project in Laravel
 
 A basic Laravel project to practice interacting with Anthropic's Claude API.
 
